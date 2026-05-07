@@ -1,0 +1,742 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+
+
+<!--list of constants-->
+<constant value="0" name="STOPPED"/>
+<constant value="1" name="SNAKE_SEARCH"/>
+<constant value="2" name="LEFTARC"/>
+<constant value="3" name="RIGHTARC"/>
+<constant value="400" name="EDGE"/>
+<constant value="4" name="DOCKING"/>
+<constant value="300" name="DOCK_SPEED"/>
+<constant value="300" name="SPEED"/>
+<constant value="600" name="WHITE"/>
+<constant value="200" name="BLACK"/>
+<constant value="5" name="CORRIDOR_FORWARD"/>
+<constant value="6" name="READJUST"/>
+<constant value="7" name="READJUST_TURN"/>
+<constant value="8" name="WIDTH_DETECTION"/>
+<constant value="9" name="LINECOUNTER"/>
+<constant value="450" name="TARGET"/>
+<constant value="200" name="BLACK_TH"/>
+<constant value="-1" name="GRAY_TH"/>
+<constant value="10" name="LINECOUNTER2"/>
+<constant value="11" name="BLACK2"/>
+<constant value="12" name="GRAY"/>
+<constant value="13" name="LINE_FOLLOW"/>
+<constant value="14" name="X_LINEFOLLOW"/>
+<constant value="15" name="X_LINEFOLLOW2"/>
+<constant value="16" name="RIGHT"/>
+<constant value="1000" name="THRESHOLD"/>
+<constant value="17" name="PUSH_TO_X"/>
+<constant value="18" name="DEAD"/>
+<constant value="19" name="X_DONE"/>
+<constant value="20" name="LEFT"/>
+
+
+<!--show keywords state-->
+<keywords flag="true"/>
+
+
+<!--node thymio-II-->
+<node nodeId="1" name="thymio-II">var state
+var x_steps
+
+var g0
+var g1
+
+var h1
+var h2
+var h3
+
+var min 
+var max 
+var mean
+
+# Barcode memory
+var barcode1     # -1 (left) / 1 (right), 0 = not read yet
+var barcode2     # -100 (left) / 100 (right) / 50 (deadend), 0 = not read yet
+var barcode3     # 10 (red) / 20 (green) / 30 (blue), 0 = not read yet
+
+# Width detection variables
+var width = 0
+var reading
+var line_index   
+var pos          
+var value        
+var k            
+
+var ledA
+var ledB
+var ledC
+var ledD
+var ledE
+var ledF
+var ledG
+var ledH
+
+var count = 0
+state = STOPPED
+barcode1 = 0
+barcode2 = 0
+barcode3 = 0
+
+motor.left.target  = 0
+motor.right.target = 0
+timer.period[0]    = 0
+timer.period[1] = 0 
+
+
+onevent button.forward
+    # Start full behaviour (movement + docking + barcodes)
+    barcode1 = 0
+    barcode2 = 0
+    barcode3 = 0
+    count = 0 
+    width = 0
+    state = SNAKE_SEARCH
+    timer.period[0] = 200   # your usual tick
+    callsub reset_pattern
+    
+
+onevent button.backward
+    state = STOPPED
+    callsub stop
+    callsub dark
+    callsub reset_pattern
+
+onevent prox
+  call math.stat(prox.horizontal[0:4], min, mean, max)	
+  if state != STOPPED then
+  
+    #reading = (prox.ground.delta[0] + prox.ground.delta[1]) / 2
+    
+    g0 = prox.ground.delta[0] 
+    g1 = prox.ground.delta[1] 
+    #reading = (prox.ground.delta[0] + prox.ground.delta[1]) / 2
+    reading = (g0+g1)/2
+
+    when state == LINECOUNTER2 and reading &lt;= BLACK_TH do
+      state = BLACK
+    end
+
+    when state == LINECOUNTER2 and reading &lt;= GRAY_TH and reading > BLACK_TH do
+      state = GRAY
+    end
+
+    if state == BLACK then
+      if reading &lt;= BLACK_TH then
+        width = width + 1
+      else
+        callsub lights_LINECOUNTER    
+      end
+    end
+
+    if state == GRAY then
+      if reading &lt;= GRAY_TH then
+        width = width + 1
+      else
+        callsub lights_LINECOUNTER    
+      end
+    end
+  end
+  
+  if  state == X_LINEFOLLOW2 and g0 >= EDGE then
+  	state = LEFT
+  	#timer.period[1] = 1000
+  	#timer.period[1] = 0      # hard reset
+  	#timer.period[1] = 1500        # &lt;- add gating delay here
+  	#callsub linefollow3
+  	#callsub reset_pattern 
+  	x_steps = 0 
+  	
+  end
+  
+  #if state == LEFT or state == RIGHT then
+  #  callsub linefollow3
+  #end
+  
+  if state == LEFT or state == RIGHT then
+        callsub linefollow3
+        x_steps = x_steps + 1
+
+        # After enough wiggles → go PUSH_TO_X
+        if x_steps > 140 then   # tune this number in lab
+            state = PUSH_TO_X
+            motor.left.target  = SPEED
+            motor.right.target = SPEED
+        end
+    end
+
+  #if state == X_LINEFOLLOW2 and (g0 >= EDGE) then
+  #	  motor.left.target = SPEED
+  #	  motor.right.target = 0
+  #	  state = RIGHT
+  #end
+  
+  #if state == RIGHT and (g0 &lt; EDGE) then
+  #	 motor.left.target = 0
+  #	 motor.right.target = SPEED
+  #	 state = X_LINEFOLLOW2
+  #end
+  
+  #if (state == X_LINEFOLLOW2 or state == RIGHT) and max > THRESHOLD then
+  	 #callsub stop
+  	 
+  	 #state = X
+  	 #motor.left.target = SPEED
+  	 #motor.right.target = SPEED
+  	 
+  #	 count = 0                 # reset Isaac counter
+  #   state = PUSH_TO_X         # NEW state: straight push toward X
+  #   motor.left.target  = SPEED
+  #   motor.right.target = SPEED
+  #   timer.period[0] = 0       # Isaac will set 400ms pulses himself
+  #end
+  
+  #if  (state == X_LINEFOLLOW2) and prox.horizontal[0] > THRESHOLD then
+  	#state = RIGHT
+  #	state = X_LINEFOLLOW2
+  #end
+  
+  #if  state == RIGHT and prox.horizontal[4] > THRESHOLD then
+  #	state = RIGHT 
+  #end
+  
+  if state == PUSH_TO_X then
+      # fresh ground readings
+      
+      #motor.left.target = SPEED
+      #motor.right.target = SPEED
+      g0 = prox.ground.delta[0]
+      g1 = prox.ground.delta[1]
+
+      # If we see the X tape under either ground sensor, start a 400 ms pulse
+      if (g0 &lt;= EDGE or g1 &lt;= EDGE) then
+          if timer.period[1] == 0 then
+              timer.period[1] = 400      # mimic Isaac's 400 ms window
+          end
+
+      # If we're OFF the line and we've had >1 pulses → we crossed the X pattern → stop
+      
+	  
+      elseif count > 1 then
+          callsub stop
+          #state = STOPPED                 # or define X_DONE if you want a fancy final state
+          state = X_DONE
+          timer.period[1] = 400
+      end
+  end
+    
+onevent timer0
+    if state == STOPPED then
+        return
+    end
+
+    # Update ground sensors for your movement behaviours
+    g0 = prox.ground.delta[0]
+    g1 = prox.ground.delta[1]
+
+    # MOVEMENT / DOCKING STATES
+    if state == SNAKE_SEARCH then
+        callsub snake_search
+        
+    # 2) While in arcs, check for line BEFORE changing arc
+    elseif (state == LEFTARC or state == RIGHTARC) and (g0 &lt; EDGE or g1 &lt; EDGE) then
+        timer.period[0] = 200                # stop snake timer
+        state = DOCKING
+        motor.left.target  = DOCK_SPEED    # slow docking forward
+        motor.right.target = DOCK_SPEED
+        return         
+        
+    elseif state == LEFTARC then
+        callsub leftarc_behaviour
+
+    elseif state == RIGHTARC then
+        callsub rightarc_behaviour
+
+    elseif state == DOCKING then
+        callsub corridor_docking
+    
+    elseif state == CORRIDOR_FORWARD then
+    		callsub corridor_forward
+ 
+    	
+    	elseif state == READJUST then
+    		callsub stop
+    		callsub readjust 
+    		
+    elseif  state == WIDTH_DETECTION then
+    		callsub stop
+    		callsub width_detection
+    end 
+    
+    
+onevent timer1
+	if  state == LINECOUNTER then
+		callsub linecounter 
+		
+	elseif  state == LINECOUNTER2 then
+		callsub stop
+		callsub linefollow
+	elseif  state == X_LINEFOLLOW then
+		#state = X_LINEFOLLOW2
+		#callsub stop 
+		callsub linefollow2
+	#end
+	
+	elseif  state == LEFT or state == RIGHT then
+		timer.period[1] = 0
+		state = PUSH_TO_X
+		callsub stop 
+		
+		motor.left.target = SPEED
+		motor.right.target = SPEED
+	
+	elseif state == PUSH_TO_X then
+        # Isaac's 400 ms pulse completed → count one X-line hit
+        if timer.period[1] != 0 then
+            count = count + 1
+            timer.period[1] = 0
+        end
+    elseif  state == X_DONE then
+    		if  barcode3 == 10 then 
+    			call leds.top(32, 0, 0) # Red
+    			call sound.freq(1000, 10) 
+    			callsub stop
+    			
+    		elseif barcode3 == 20 then
+    			call leds.top(0, 32, 0) # Green 
+    			call sound.freq(1000, 10) 
+    			callsub stop
+    		
+    		elseif  barcode3 == 30 then
+    			call leds.top(0, 0, 32) # Blue 
+    			call sound.freq(1000, 10) 
+    			callsub stop
+    		end
+	end 
+	
+###############################
+#   MOVEMENT / DOCKING STUBS
+###############################
+# Paste your working implementations into these.
+
+sub snake_search
+    # Your existing code to enter the snake pattern
+    # (typically sets LEFTARC / RIGHTARC and motor targets)
+    state = LEFTARC
+    motor.left.target  = SPEED / 2
+    motor.right.target = SPEED
+    #timer.period[0] = 200
+    timer.period[0] = 300
+
+sub stop 
+	motor.left.target = 0 
+	motor.right.target = 0
+	timer.period[0] = 0
+	timer.period[1] = 0
+	
+sub dark 
+	call leds.top(0,0,0)
+	
+sub leftarc_behaviour
+    # Your existing LEFTARC movement code
+    # At the end of docking (not normal arc motion), you’ll eventually be in DOCKING state,
+    # not here. Normal arcs should NOT read barcodes directly.
+    state = RIGHTARC
+    motor.right.target = SPEED / 2
+    motor.left.target  = SPEED
+    #timer.period[0] = 200
+    #timer.period[0] = 300
+    timer.period[0] = 350
+
+sub rightarc_behaviour
+    # Your existing RIGHTARC movement code
+    state = LEFTARC
+    motor.left.target  = SPEED / 2
+    motor.right.target = SPEED
+    #timer.period[0] = 200
+    #timer.period[0] = 300
+    timer.period[0] = 350 
+    
+sub delay_small 
+	motor.left.target = 100
+	motor.right.target = 100
+	timer.period[0] = 100
+ 
+sub corridor_docking 
+	callsub stop
+	#callsub delay_small
+	#callsub leftturn
+	
+	#callsub barcode1
+	
+	if barcode1 == 0 then
+        # First time docking → read entrance barcode
+        callsub barcode1
+
+    elseif barcode2 == 0 then
+        # Second time docking → read treasure entrance barcode
+        callsub barcode2
+
+    else
+        # Third time docking → read color barcode in treasure room
+        callsub barcode3
+    end
+
+sub barcode1
+	callsub delay_small
+	#callsub stop
+	h1 = prox.horizontal[1]
+    h2 = prox.horizontal[2]
+    h3 = prox.horizontal[3]
+
+    # WBB → LEFT
+    if h1 > WHITE and h2 &lt; BLACK and h3 &lt; BLACK then
+        barcode1 = -1
+        
+        # Circle LED: LEFT = G on
+        call leds.circle(0, 0, 0, 0, 0, 0, 32, 0)
+        
+        callsub leftturn
+
+    # BBW → RIGHT
+    elseif h1 &lt; BLACK and h2 &lt; BLACK and h3 > WHITE then
+        barcode1 = 1
+        
+        # Circle LED: RIGHT = C on
+        call leds.circle(0, 0, 32, 0, 0, 0, 0, 0)
+
+        callsub rightturn
+    end
+    
+sub barcode2
+    callsub delay_small
+    h1 = prox.horizontal[1]
+    h2 = prox.horizontal[2]
+    h3 = prox.horizontal[3]
+
+    # ----- NORMAL CASES: LEFT/RIGHT TREASURE PATH -----
+    # barcode1 tells us which side we originally turned to reach this fork.
+
+    # LEFT LEFT  (barcode1 = -1, second barcode WBB)
+    if h1 > WHITE and h2 &lt; BLACK and h3 &lt; BLACK and barcode1 == -1 then
+        barcode2 = -100
+        call leds.circle(0, 0, 0, 0, 0, 0, 32, 0)   # LEFT (G)
+        callsub rightturncorridor
+    	
+    # LEFT RIGHT (barcode1 = -1, second barcode BBW)
+    elseif h1 &lt; BLACK and h2 &lt; BLACK and h3 > WHITE and barcode1 == -1 then
+        barcode2 = 100
+        call leds.circle(0, 0, 32, 0, 0, 0, 0, 0)   # RIGHT (C)
+        callsub rightturncorridor
+    	
+    # RIGHT LEFT (barcode1 = 1, second barcode WBB)
+    elseif h1 > WHITE and h2 &lt; BLACK and h3 &lt; BLACK and barcode1 == 1 then
+        barcode2 = -100
+        call leds.circle(0, 0, 0, 0, 0, 0, 32, 0)
+        callsub leftturncorridor
+    	
+    # RIGHT RIGHT (barcode1 = 1, second barcode BBW)
+    elseif h1 &lt; BLACK and h2 &lt; BLACK and h3 > WHITE and barcode1 == 1 then
+        barcode2 = 100
+        call leds.circle(0, 0, 32, 0, 0, 0, 0, 0)
+        callsub leftturncorridor
+    	
+    # ----- SPECIAL CASE: DEADEND (WBW) -----
+    # Pattern WBW → deadend. We flip barcode1 and mark barcode2 = 50, then do 180°.
+
+    elseif h1 > WHITE and h2 &lt; BLACK and h3 > WHITE and barcode1 == 1 then
+        # Originally chose RIGHT → now flip to LEFT
+        barcode1 = -1
+        barcode2 = 50
+        call leds.circle(32, 32, 32, 32, 32, 32, 32, 32)
+        callsub turn180
+
+    elseif h1 > WHITE and h2 &lt; BLACK and h3 > WHITE and barcode1 == -1 then
+        # Originally chose LEFT → now flip to RIGHT
+        barcode1 = 1
+        barcode2 = 50
+        call leds.circle(32, 32, 32, 32, 32, 32, 32, 32)
+        callsub turn180
+    end
+ 
+sub barcode3
+    callsub delay_small
+    h1 = prox.horizontal[1]
+    h2 = prox.horizontal[2]
+    h3 = prox.horizontal[3]
+
+    # THIRD BARCODE = COLOR
+    # Pattern meanings:
+    # WBB → RED (10)
+    # BWB → GREEN (20)
+    # BBW → BLUE (30)
+
+    # ----- LEFT SIDE TREASURE PATH (barcode1 = -1, barcode2 = -100 or 100) -----
+
+    if barcode1 == -1 then
+        # RED (WBB)
+        if h1 > WHITE and h2 &lt; BLACK and h3 &lt; BLACK then
+            barcode3 = 10
+            callsub rightcorridorentry
+
+        # GREEN (BWB)
+        elseif h1 &lt; BLACK and h2 > WHITE and h3 &lt; BLACK then
+            barcode3 = 20
+            callsub rightcorridorentry
+
+        # BLUE (BBW)
+        elseif h1 &lt; BLACK and h2 &lt; BLACK and h3 > WHITE then
+            barcode3 = 30
+            callsub rightcorridorentry
+        end
+    end
+
+    # ----- RIGHT SIDE TREASURE PATH (barcode1 = 1) -----
+
+    if barcode1 == 1 then
+        # RED (WBB)
+        if h1 > WHITE and h2 &lt; BLACK and h3 &lt; BLACK then
+            barcode3 = 10
+            callsub leftcorridorentry
+
+        # GREEN (BWB)
+        elseif h1 &lt; BLACK and h2 > WHITE and h3 &lt; BLACK then
+            barcode3 = 20
+            callsub leftcorridorentry
+
+        # BLUE (BBW)
+        elseif h1 &lt; BLACK and h2 &lt; BLACK and h3 > WHITE then
+            barcode3 = 30
+            callsub leftcorridorentry
+        end
+    end
+
+
+sub leftturn
+	call sound.freq(440, 10) 
+	state = SNAKE_SEARCH
+	#motor.left.target = -SPEED
+	#motor.right.target = SPEED
+	
+	motor.left.target = SPEED / 2
+	motor.right.target = SPEED
+	timer.period[0] = 550 
+	
+sub rightturn
+	call sound.freq(440, 10) 
+	state = SNAKE_SEARCH
+	motor.left.target = SPEED
+	motor.right.target = -SPEED
+	timer.period[0] = 760
+	
+sub leftturncorridor
+    state = SNAKE_SEARCH      # or LINEFOLLOW later if you wire it that way
+    motor.left.target  = -SPEED
+    motor.right.target =  SPEED
+    #timer.period[0]    = 700  # tune for 90° into treasure corridor
+    timer.period[0] = 625 
+	
+	
+sub rightturncorridor
+    state = SNAKE_SEARCH
+    motor.left.target  =  SPEED
+    motor.right.target = -SPEED
+    #timer.period[0]    = 700  # same tuning idea
+    timer.period[0] = 625
+	
+	
+sub turn180
+    state = SNAKE_SEARCH
+    motor.left.target  = -SPEED
+    motor.right.target =  SPEED
+    timer.period[0]    = 1400  # ~2x 90° time; tune on real robot
+    
+sub leftcorridorentry
+    # For now: just a 90° turn into treasure corridor on LEFT side.
+    # Later you can add forward movement / line follow / LED color action.
+    #state = SNAKE_SEARCH      # or TREASURE if you make a special state
+    motor.left.target  = -SPEED
+    motor.right.target =  SPEED
+    timer.period[0]    = 700   # tune if corridor angle is slightly different
+    
+    # Transition to forward state
+    state = CORRIDOR_FORWARD
+	
+	
+sub rightcorridorentry
+    # 90° the other way into treasure corridor on RIGHT side.
+    #state = SNAKE_SEARCH
+    motor.left.target  =  SPEED
+    motor.right.target = -SPEED
+    timer.period[0]    = 700
+    
+    # Transition to forward state
+    state = CORRIDOR_FORWARD
+
+sub corridor_forward 
+	state = READJUST
+	motor.left.target = SPEED 
+	motor.right.target = SPEED
+	timer.period[0] = 2700
+
+
+sub readjust
+	if barcode1 == -1 then
+		motor.left.target = -SPEED
+		motor.right.target = SPEED 
+		timer.period[0] = 700 # Check in lab (set for perpendicular alignment and considers offset) 
+		state = WIDTH_DETECTION
+		
+    elseif barcode1 == 1 then
+    		motor.left.target = SPEED
+		motor.right.target = -SPEED 
+		timer.period[0] = 700 # Check in lab 
+		state = WIDTH_DETECTION
+    end 
+    
+sub width_detection
+	# Nadim's line counter logic 
+	width = 0
+	state = LINECOUNTER
+	timer.period[0] = 0
+	timer.period[1] = 200
+	
+sub linecounter
+	width = 0
+    state = LINECOUNTER2
+    motor.left.target  = TARGET
+    motor.right.target = TARGET
+    #timer.period[1] = 3800
+    timer.period[1] = 3700
+    #callsub reset_pattern
+    
+    
+# called when we leave a line
+sub lights_LINECOUNTER
+  if width > 0 then
+    callsub add_line_to_pattern
+  end
+  call leds.top(0,0,0)
+  state = LINECOUNTER2
+
+# reset circle pattern
+sub reset_pattern
+  ledA = 0
+  ledB = 0
+  ledC = 0
+  ledD = 0
+  ledE = 0
+  ledF = 0
+  ledG = 0
+  ledH = 0
+
+  pos = 0
+  line_index = 0
+  callsub update_circle_leds
+
+sub set_led_at_pos
+  if pos == 0 then
+    ledA = value
+  elseif pos == 1 then
+    ledB = value
+  elseif pos == 2 then
+    ledC = value
+  elseif pos == 3 then
+    ledD = value
+  elseif pos == 4 then
+    ledE = value
+  elseif pos == 5 then
+    ledF = value
+  elseif pos == 6 then
+    ledG = value
+  elseif pos == 7 then
+    ledH = value
+  end
+
+sub add_line_to_pattern
+  #value = 32
+  value = 0
+  for k in 0:7 do        
+    if k &lt; width and pos &lt;= 7 then
+      callsub set_led_at_pos
+      pos = pos + 1
+    end
+  end
+
+  # add a space between lines 
+  if line_index &lt; 2 and pos &lt;= 7 then
+    #value = 0
+    value = 32
+    callsub set_led_at_pos
+    pos = pos + 1
+  end
+
+  line_index = line_index + 1
+  width = 0
+  callsub update_circle_leds
+
+
+sub update_circle_leds
+  call leds.circle(ledA, ledB, ledC, ledD, ledE, ledF, ledG, ledH)
+
+	
+sub linefollow
+	if barcode2 == -100 then
+       # LEFT path open → turn LEFT into X path
+       motor.left.target  = -SPEED
+       motor.right.target =  SPEED
+       timer.period[1]    = 700      # 90° turn
+       state = X_LINEFOLLOW          # new state next
+
+    elseif barcode2 == 100 then
+       # RIGHT path open → turn RIGHT into X path
+       motor.left.target  =  SPEED
+       motor.right.target = -SPEED
+       timer.period[1]    = 700
+       state = X_LINEFOLLOW
+    end
+	
+sub linefollow2
+	count = 0
+	state = X_LINEFOLLOW2 # LEFT STATE of line follow
+	timer.period[0] = 0
+	timer.period[1] = 0 
+
+sub linefollow3
+	g0 = prox.ground.delta[0]
+	#timer.period[1] = 600 
+	
+	
+	#if state == LEFT and g0 >= EDGE then
+	#	motor.left.target  = SPEED
+	#	motor.right.target = 0 
+	#	state = RIGHT
+	#end
+	
+	#if  state == RIGHT and g0 &lt; EDGE then
+	#	motor.left.target = 0 
+	#	motor.right.target = SPEED
+	#	state = LEFT
+	#end
+	
+	if g0 >= EDGE then
+        # too far one way → adjust this way
+        motor.left.target  = SPEED
+        motor.right.target = 0
+        state = RIGHT
+    else
+        # other side → adjust other way
+        motor.left.target  = 0
+        motor.right.target = SPEED
+        state = LEFT
+    end</node>
+
+
+</network>
